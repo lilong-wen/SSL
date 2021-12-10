@@ -17,6 +17,8 @@ import copy
 from torch_geometric.data import ClusterData, ClusterLoader
 from models.resnet import ResNet, BasicBlock
 
+
+
 class Engine:
 
     def __init__(self, args, labeled_list, unlabeled_list, dataset, dataloader):
@@ -134,26 +136,31 @@ class Engine:
         confs = np.array([])
         with torch.no_grad():
             # _, unlabeled_graph = self.dataset.labeled_data, self.dataset.unlabeled_data
-            unlabeled_data = self.dataset(mode='test', target_list=None, labeled=False)
+            test_data = self.dataset(mode='test', target_list=None, labeled=True)
             # unlabeled_graph_cp = copy.deepcopy(unlabeled_graph)
-            unlabeled_cp = copy.deepcopy(unlabeled_data.imgs)
-            unlabeled_cp = torch.from_numpy(unlabeled_cp).permute(0, -1, 1, 2).to(torch.float)
+            test_data_img = copy.deepcopy(test_data.imgs)
+            test_data_label = np.asarray(copy.deepcopy(test_data.labels))
+            test_data_img = torch.from_numpy(test_data_img).permute(0, -1, 1, 2).to(torch.float)
             # unlabeled_graph_cp = unlabeled_graph_cp.to(self.args.device)
-            unlabeled_cp = unlabeled_cp.to(self.args.device)
+            test_data_img = test_data_img.to(self.args.device)
             # output, _, _ = self.model(unlabeled_graph_cp)
-            output, _,  = self.model(unlabeled_cp)
+            output, _,  = self.model(test_data_img)
             prob = F.softmax(output, dim=1)
             conf, pred = prob.max(1)
             preds = np.append(preds, pred.cpu().numpy())
             confs = np.append(confs, conf.cpu().numpy())
+            print(test_data_label)
+            acc = cluster_acc(test_data_label.astype(int), preds.astype(int))
         preds = preds.astype(int)
         mean_uncert = 1 - np.mean(confs)
-        return mean_uncert, preds
+        return mean_uncert, preds, acc
 
     def train(self):
         # Set the optimizer
         optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
 
         for epoch in range(self.args.epochs):
-            mean_uncert, _ = self.pred()
+            mean_uncert, _, _ = self.pred()
             self.train_epoch(self.args, self.model, self.args.device, self.dataset, optimizer, mean_uncert, epoch)
+            _, _, acc= self.pred()
+            print(f"test unseen class cluster acc : {acc}")
