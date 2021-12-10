@@ -6,7 +6,15 @@ import os
 import time
 
 class CIFAR10(dataset.Dataset):
-    def __init__(self, mode, target_list, labeled=True, data_root="/home/wll/data/cifar-10-batches-py/"):
+    def __init__(self, mode, target_list, labeled=True, drop_ratio=0, 
+                data_root="/home/wll/data/cifar-10-batches-py/"):
+        """
+        there is 3 dataset strategy:
+        1. mode="train", labeled=True, drop_ratio<1 -- supervised data with ratio number of seen class without label
+        2. mode="train", labeled=False, drop_ratio=0 -- unsupervised data, total unseen class
+        3. mode="test", labeled=True, drop_ratio=0  -- for testing
+        """
+
         assert mode in ['train', 'test'], print('mode must be "train" or "test"')
         data_files = {'train': ['data_batch_1', 'data_batch_2', 'data_batch_3',
                                 'data_batch_4', 'data_batch_5'], 
@@ -15,9 +23,14 @@ class CIFAR10(dataset.Dataset):
         self.labels = []
         self.data_root = data_root
         self.labeled = labeled
+        # rate of dropping labels
+        self.drop_ratio = drop_ratio
         
+        # assert self.drop_ratio < 1. and self.labeled==True and mode=="train", \
+        #    print("only drop labeled data while training")
+
         if mode=='test' and target_list == None:
-            target_list = range(5)
+            target_list = range(5,10)
 
         # self.class_names = self._unpickle(os.path.join(data_root, 'batches.meta'))[b'label_names]
         for f in data_files[mode]:
