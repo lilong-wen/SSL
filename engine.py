@@ -161,8 +161,8 @@ class Engine:
                 confs = np.append(confs, conf.cpu().numpy())
                 # print(test_data_label)
                 # print(preds)
-                # acc = cluster_acc(test_data_label.numpy().astype(int)-5, preds.astype(int))
-                acc = accuracy(test_data_label.numpy().astype(int)-5, preds.astype(int))
+                acc = cluster_acc(test_data_label.numpy().astype(int)-5, preds.astype(int))
+                # acc = accuracy(test_data_label.numpy().astype(int)-5, preds.astype(int))
                 acc_list.append(acc)
 
         preds = preds.astype(int)
