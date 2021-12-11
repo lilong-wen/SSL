@@ -21,7 +21,7 @@ from models.resnet import ResNet, BasicBlock
 
 class Engine:
 
-    def __init__(self, args, labeled_list, unlabeled_list, dataset, dataloader):
+    def __init__(self, args, labeled_list, unlabeled_list, dataloader):
         self.args = args
         # self.dataset = datasets.CodexGraphDataset(labeled_X, labeled_y, unlabeled_X, labeled_pos, unlabeled_pos, self.args.distance_thres)
         # self.model = models.Encoder(args.input_dim, args.num_heads)
@@ -29,12 +29,15 @@ class Engine:
         self.unlabeled_list = unlabeled_list
         num_labeled_classes = len(list(labeled_list))
         num_unlabeled_classes = len(list(unlabeled_list))
-        self.dataset = dataset
         self.dataloader = dataloader
         self.model = ResNet(BasicBlock, [2,2,2,2], num_labeled_classes=num_labeled_classes, num_unlabeled_classes=num_unlabeled_classes)
         self.model = self.model.to(args.device)
 
-    def train_epoch(self, args, model, device, dataset, optimizer, m, epoch):
+        self.labeled_loader = self.dataloader(batch_size=1, target_list=self.labeled_list, labeled=True)
+        self.unlabeled_loader = self.dataloader(batch_size=1, target_list=self.unlabeled_list)
+        self.test_loader = self.dataloader(batch_size=5000, split='test', target_list=self.unlabeled_list)
+
+    def train_epoch(self, args, model, device, optimizer, m, labeled_loader, unlabeled_loader):
         """ Train for 1 epoch."""
         model.train()
         bce = nn.BCELoss()
@@ -53,8 +56,7 @@ class Engine:
         # unlabeled_data = ClusterData(unlabeled_graph, num_parts=100, recursive=False)
         # unlabeled_loader = ClusterLoader(unlabeled_data, batch_size=1, shuffle=True,
         #                             num_workers=1)
-        labeled_loader = self.dataloader(batch_size=1, target_list=self.labeled_list, labeled=True)
-        unlabeled_loader = self.dataloader(batch_size=1, target_list=self.unlabeled_list)
+
         unlabel_loader_iter = cycle(unlabeled_loader)
 
         for batch_idx, (labeled_x, labeled_y) in enumerate(labeled_loader):
@@ -127,40 +129,49 @@ class Engine:
                 print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)
                 ))
 
-        write_txt(args, f"labeled uncert: {seen_uncerts.avg} unseen uncert: {unseen_uncerts.avg}")
+        # write_txt(args, f"labeled uncert: {seen_uncerts.avg} unseen uncert: {unseen_uncerts.avg}")
 
 
-    def pred(self):
+    def pred(self, test_loader):
         self.model.eval()
         preds = np.array([])
         confs = np.array([])
         with torch.no_grad():
             # _, unlabeled_graph = self.dataset.labeled_data, self.dataset.unlabeled_data
-            test_data = self.dataset(mode='test', target_list=None, labeled=True)
+            # test_data = self.dataset(mode='test', target_list=None, labeled=True)
             # unlabeled_graph_cp = copy.deepcopy(unlabeled_graph)
-            test_data_img = copy.deepcopy(test_data.imgs)
-            test_data_label = np.asarray(copy.deepcopy(test_data.labels))
-            test_data_img = torch.from_numpy(test_data_img).permute(0, -1, 1, 2).to(torch.float)
-            # unlabeled_graph_cp = unlabeled_graph_cp.to(self.args.device)
-            test_data_img = test_data_img.to(self.args.device)
-            # output, _, _ = self.model(unlabeled_graph_cp)
-            output, _,  = self.model(test_data_img)
-            prob = F.softmax(output, dim=1)
-            conf, pred = prob.max(1)
-            preds = np.append(preds, pred.cpu().numpy())
-            confs = np.append(confs, conf.cpu().numpy())
-            print(test_data_label)
-            acc = cluster_acc(test_data_label.astype(int), preds.astype(int))
+            acc_list = []
+            for batch_idx, (test_data_img, test_data_label) in enumerate(test_loader):
+                # test_data_img = copy.deepcopy(test_data.imgs)
+                # test_data_label = np.asarray(copy.deepcopy(test_data.labels))
+                # test_data_img = test_data_img.permute(0, -1, 1, 2).to(torch.float)
+                # unlabeled_graph_cp = unlabeled_graph_cp.to(self.args.device)
+                test_data_img = test_data_img.to(self.args.device)
+                # output, _, _ = self.model(unlabeled_graph_cp)
+                output, _,  = self.model(test_data_img)
+                prob = F.softmax(output, dim=1)
+                conf, pred = prob.max(1)
+                preds = np.append(preds, pred.cpu().numpy())
+                confs = np.append(confs, conf.cpu().numpy())
+                # print(test_data_label)
+                # print(preds)
+                acc = cluster_acc(test_data_label.numpy().astype(int)-5, preds.astype(int))
+                acc_list.append(acc)
+
         preds = preds.astype(int)
         mean_uncert = 1 - np.mean(confs)
-        return mean_uncert, preds, acc
+        final_acc = sum(acc_list) / len(acc_list)
+        return mean_uncert, preds, final_acc
 
     def train(self):
         # Set the optimizer
         optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
-
+        # train_epoch(self, args, model, device, optimizer, m, labeled_loader, unlabeled_loader):
         for epoch in range(self.args.epochs):
-            mean_uncert, _, _ = self.pred()
-            self.train_epoch(self.args, self.model, self.args.device, self.dataset, optimizer, mean_uncert, epoch)
-            _, _, acc= self.pred()
+            mean_uncert, _, acc = self.pred(self.test_loader)
+            self.train_epoch(self.args, self.model, self.args.device, optimizer, 
+                             mean_uncert, self.labeled_loader, self.unlabeled_loader)
+            _, _, acc = self.pred(self.test_loader)
+
             print(f"test unseen class cluster acc : {acc}")
+            # print(acc)

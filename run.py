@@ -9,6 +9,11 @@ from datasets.cifar_dataset import CIFAR10, CIFAR100
 import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+import os
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" 
+
 def get_args_parser():
     parser = argparse.ArgumentParser('parameters', add_help=False)
     parser.add_argument('--dataset', default='cifar10', help='dataset setting')
@@ -33,15 +38,13 @@ def main(args):
     if args.dataset == 'cifar10':
 
         labeled_list = range(5)
-        unlabeled_list = range(5, 10)
-        dataset = CIFAR10
+        unlabeled_list = range(5,10)
         data_loader = CIFAR10_loader_single
 
     elif args.dataset == 'cifar100':
 
         labeled_list = range(50)
         unlabeled_list = range(50, 100)
-        dataset = CIFAR100
         data_loader = CIFAR100_loader_single
 
     elif args.dataset == 'imgnet':
@@ -54,7 +57,6 @@ def main(args):
 
     engine = Engine(args, labeled_list=labeled_list, 
                     unlabeled_list=unlabeled_list,
-                    dataset = dataset,
                     dataloader=data_loader)
     engine.train()
 
