@@ -4,6 +4,7 @@ from utils.utils import prepare_save_dir, create_logger, save_logger
 from engine import Engine
 from datasets.data import CIFAR10_loader_single, CIFAR100_loader_single
 from datasets.cifar_dataset import CIFAR10, CIFAR100
+from datasets.cifarloader import CIFAR10Loader
 
 # fix too many open file error
 import torch.multiprocessing
@@ -22,9 +23,8 @@ def get_args_parser():
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--wd', type=float, default=5e-2)
-    parser.add_argument('-b', '--batch-size', default=1, type=int,
-                    metavar='N',
-                    help='mini-batch size')
+    parser.add_argument('--train_batch_size', default=1000, type=int)
+    parser.add_argument('--test_batch_size', default=1, type=int)
     return parser
 
 
@@ -37,27 +37,60 @@ def main(args):
 
     if args.dataset == 'cifar10':
 
-        labeled_list = range(5)
-        unlabeled_list = range(5,10)
-        data_loader = CIFAR10_loader_single
+        dataset_root = "/home/wll/data/"
+        # labeled_list = range(5)
+        # unlabeled_list = range(5,10)
+        num_labeled_classes = 5
+        num_classes = 10
+        args.test_batch_size = 5000
 
+        data_loader = CIFAR10_loader_single
+        labeled_train_loader = CIFAR10Loader(root=dataset_root,
+                                             batch_size=args.train_batch_size,
+                                             split="train",
+                                             aug='once',
+                                             shuffle=True,
+                                             target_list=range(num_labeled_classes))
+
+        unlabeled_train_loader = CIFAR10Loader(root=dataset_root,
+                                             batch_size=args.train_batch_size,
+                                             split="train",
+                                             aug='once',
+                                             shuffle=True,
+                                             target_list=range(num_labeled_classes, num_classes))
+
+        labeled_test_loader = CIFAR10Loader(root=dataset_root,
+                                             batch_size=args.test_batch_size,
+                                             split="test",
+                                             aug=None,
+                                             shuffle=False,
+                                             target_list=range(num_labeled_classes))
+
+        unlabeled_test_loader = CIFAR10Loader(root=dataset_root,
+                                             batch_size=args.test_batch_size,
+                                             split="test",
+                                             aug=None,
+                                             shuffle=False,
+                                             target_list=range(num_labeled_classes, num_classes))
     elif args.dataset == 'cifar100':
 
-        labeled_list = range(50)
-        unlabeled_list = range(50, 100)
-        data_loader = CIFAR100_loader_single
+        print("later")
+        pass
 
     elif args.dataset == 'imgnet':
 
+        print("later")
         pass
 
     else:
 
         print("not supported dataset")
 
-    engine = Engine(args, labeled_list=labeled_list, 
-                    unlabeled_list=unlabeled_list,
-                    dataloader=data_loader)
+    engine = Engine(args, num_labeled_classes, num_classes,
+                    labeled_train_loader, labeled_test_loader,
+                    unlabeled_train_loader, unlabeled_test_loader
+                    ) 
+
     engine.train()
 
 

@@ -21,25 +21,30 @@ from models.resnet import ResNet, BasicBlock
 
 class Engine:
 
-    def __init__(self, args, labeled_list, unlabeled_list, dataloader):
+    def __init__(self, args, num_labeled_classes, num_classes, 
+                 labeled_train_loader, labeled_test_loader,
+                 unlabeled_train_loader, unlabeled_test_loader):
+
         self.args = args
         # self.dataset = datasets.CodexGraphDataset(labeled_X, labeled_y, unlabeled_X, labeled_pos, unlabeled_pos, self.args.distance_thres)
         # self.model = models.Encoder(args.input_dim, args.num_heads)
-        self.labeled_list = labeled_list
-        self.unlabeled_list = unlabeled_list
-        num_labeled_classes = len(list(labeled_list))
-        num_unlabeled_classes = len(list(unlabeled_list))
-        self.dataloader = dataloader
-        self.model = ResNet(BasicBlock, [2,2,2,2], num_labeled_classes=num_labeled_classes, num_unlabeled_classes=num_unlabeled_classes)
+
+        num_unlabeled_classes = num_classes - num_labeled_classes
+        self.labeled_train_loader = labeled_train_loader
+        self.labeled_test_loader = labeled_test_loader
+        self.unlabeled_train_loader = unlabeled_train_loader
+        self.unlabeled_test_loader = unlabeled_test_loader
+
+        self.model = ResNet(BasicBlock, [2,2,2,2], num_labeled_classes=num_labeled_classes, 
+                            num_unlabeled_classes=num_unlabeled_classes)
         self.model = self.model.to(args.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
 
-        self.labeled_loader = self.dataloader(batch_size=1, target_list=self.labeled_list, labeled=True)
-        self.unlabeled_loader = self.dataloader(batch_size=1, target_list=self.unlabeled_list)
-        self.test_loader = self.dataloader(batch_size=5000, split='test', target_list=self.unlabeled_list)
 
-    def train_epoch(self, args, model, device, optimizer, m, labeled_loader, unlabeled_loader):
+    def train_epoch(self, m):
+
         """ Train for 1 epoch."""
-        model.train()
+        self.model.train()
         bce = nn.BCELoss()
         ce = MarginLoss(m=-m)
         sum_loss = 0
@@ -57,16 +62,16 @@ class Engine:
         # unlabeled_loader = ClusterLoader(unlabeled_data, batch_size=1, shuffle=True,
         #                             num_workers=1)
 
-        unlabel_loader_iter = cycle(unlabeled_loader)
+        unlabel_loader_iter = cycle(self.unlabeled_train_loader)
 
-        for batch_idx, (labeled_x, labeled_y) in enumerate(labeled_loader):
+        for batch_idx, (labeled_x, labeled_y, _) in enumerate(self.labeled_train_loader):
             unlabeled_x = next(unlabel_loader_iter)[0]
-            labeled_x, unlabeled_x = labeled_x.to(device), unlabeled_x.to(device)
-            optimizer.zero_grad()
+            labeled_x, unlabeled_x = labeled_x.to(self.args.device), unlabeled_x.to(self.args.device)
+            self.optimizer.zero_grad()
             # labeled_output, labeled_feat, _ = model(labeled_x)
-            labeled_output, labeled_feat = model(labeled_x)
+            labeled_output, labeled_feat = self.model(labeled_x)
             # unlabeled_output, unlabeled_feat, _ = model(unlabeled_x)
-            unlabeled_output, unlabeled_feat = model(unlabeled_x)
+            unlabeled_output, unlabeled_feat = self.model(unlabeled_x)
             labeled_len = len(labeled_output)
             batch_size = len(labeled_output) + len(unlabeled_output)
             output = torch.cat([labeled_output, unlabeled_output], dim=0)
@@ -88,7 +93,7 @@ class Engine:
 
             pos_pairs = []
             # target = labeled_x.y
-            target = labeled_y.to(device)
+            target = labeled_y.to(self.args.device)
             target_np = target.cpu().numpy()
             
             for i in range(labeled_len):
@@ -120,19 +125,20 @@ class Engine:
             bce_losses.update(bce_loss.item(), batch_size)
             ce_losses.update(ce_loss.item(), batch_size)
             entropy_losses.update(entropy_loss.item(), batch_size)
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
             sum_loss += loss.item()
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
 
-            if batch_idx % (len(labeled_loader) // 4) == 0:
+            if batch_idx % (len(self.labeled_train_loader) // 4) == 0:
                 print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)
                 ))
 
-        # write_txt(args, f"labeled uncert: {seen_uncerts.avg} unseen uncert: {unseen_uncerts.avg}")
+        write_txt(self.args, f"labeled uncert: {seen_uncerts.avg} unseen uncert: {unseen_uncerts.avg}")
 
 
-    def pred(self, test_loader):
+    def pred(self):
+
         self.model.eval()
         preds = np.array([])
         confs = np.array([])
@@ -141,7 +147,7 @@ class Engine:
             # test_data = self.dataset(mode='test', target_list=None, labeled=True)
             # unlabeled_graph_cp = copy.deepcopy(unlabeled_graph)
             acc_list = []
-            for batch_idx, (test_data_img, test_data_label) in enumerate(test_loader):
+            for batch_idx, (test_data_img, test_data_label, _) in enumerate(self.unlabeled_test_loader):
                 # test_data_img = copy.deepcopy(test_data.imgs)
                 # test_data_label = np.asarray(copy.deepcopy(test_data.labels))
                 # test_data_img = test_data_img.permute(0, -1, 1, 2).to(torch.float)
@@ -155,7 +161,8 @@ class Engine:
                 confs = np.append(confs, conf.cpu().numpy())
                 # print(test_data_label)
                 # print(preds)
-                acc = cluster_acc(test_data_label.numpy().astype(int)-5, preds.astype(int))
+                # acc = cluster_acc(test_data_label.numpy().astype(int)-5, preds.astype(int))
+                acc = accuracy(test_data_label.numpy().astype(int)-5, preds.astype(int))
                 acc_list.append(acc)
 
         preds = preds.astype(int)
@@ -165,13 +172,10 @@ class Engine:
 
     def train(self):
         # Set the optimizer
-        optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
-        # train_epoch(self, args, model, device, optimizer, m, labeled_loader, unlabeled_loader):
+        # train_epoch(self, args, model, device, optimizer, m):
         for epoch in range(self.args.epochs):
-            mean_uncert, _, acc = self.pred(self.test_loader)
-            self.train_epoch(self.args, self.model, self.args.device, optimizer, 
-                             mean_uncert, self.labeled_loader, self.unlabeled_loader)
-            _, _, acc = self.pred(self.test_loader)
-
+            mean_uncert, _, acc = self.pred()
             print(f"test unseen class cluster acc : {acc}")
+            self.train_epoch(mean_uncert)
+            # _, _, acc = self.pred(self.test_loader)
             # print(acc)
