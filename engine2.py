@@ -84,6 +84,9 @@ def train(model, train_loader, test_loader, args):
             labeled_len = sum(masked_index).item()
             unlabeled_len = sum(~masked_index).item()
 
+            if labeled_len == 0 or unlabeled_len == 0:
+                continue
+
             # feat_norm = feat_norm.detach()
             # cosine_dist = torch.mm(feat_norm, feat_norm.t())
 
