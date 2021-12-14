@@ -51,12 +51,13 @@ def main(args):
 
     if args.dataset == 'cifar10':
 
+        args.num_classes = args.num_labeled_classes + args.num_unlabeled_classes
+
         train_loader = CIFAR10LoaderMix(root=args.dataset_root, batch_size=args.train_batch_size,
                                         split='train', aug='once', shuffle=True,
                                         labeled_list=range(args.num_labeled_classes),
-                                        unlabeled_list=range(args.num_unlabeled_classes))
+                                        unlabeled_list=range(args.num_unlabeled_classes, args.num_classes))
 
-        args.num_classes = args.num_labeled_classes + args.num_unlabeled_classes
 
         labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.test_batch_size,
                                               split='test', aug='once', shuffle=False,

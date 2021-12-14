@@ -28,9 +28,11 @@ def train(model, train_loader, test_loader, args):
 
     bce = nn.BCELoss()
     sum_loss = 0
-    bce_losses = AverageMeter('bce_loss', ':.4e')
+    bce_losses_labeled = AverageMeter('bce_loss', ':.4e')
+    bce_losses_unlabeled = AverageMeter('bce_loss', ':.4e')
     ce_losses = AverageMeter('ce_loss', ':.4e')
-    entropy_losses = AverageMeter('entropy_loss', ':.4e')
+    entropy_losses_labeled = AverageMeter('entropy_loss', ':.4e')
+    entropy_losses_unlabeled = AverageMeter('entropy_loss', ':.4e')
     seen_uncerts = AverageMeter('seen_uncert', ':.4e')
     unseen_uncerts = AverageMeter('unseen_conf', ':.4e')
     mean_uncert = 0.1
@@ -55,81 +57,99 @@ def train(model, train_loader, test_loader, args):
 
         exp_lr_scheduler.step()
         
-        for batch_idx, ((x_labeled, x_unlabeled), label, idx) in enumerate(tqdm(train_loader)):
+        for batch_idx, (x_mixed, label, idx_x) in enumerate(tqdm(train_loader)):
 
-            x_labeled, x_unlabeled, label = x_labeled.to(args.device), x_unlabeled.to(args.device), label.to(args.device)
+            x_mixed,  label = x_mixed.to(args.device),  label.to(args.device)
 
             # mask unlabeled label value
-            masked_label = label < args.num_labeled_classes
+            masked_index = label < args.num_labeled_classes
 
-            feat, feat_norm, l_out_labeled_head, \
-                l_out_unlabeled_head = model(x_labeled, 'feat_logit')
-            feat_un, feat_un_norm, u_out_labeled_head, \
-                u_out_unlabeled_head = model(x_unlabeled, 'feat_logit')
+            optimizer.zero_grad()
 
-            prob_x_labeled_1 = F.softmax(l_out_labeled_head)
-            prob_x_unlabeled_1 = F.softmax(u_out_labeled_head)
-            prob_x_labeled_2 = F.softmax(l_out_unlabeled_head)
-            prob_x_unlabeled_2 = F.softmax(u_out_unlabeled_head)
+            feat, feat_norm, out_head_1, \
+                out_head_2 = model(x_mixed, 'feat_logit')
 
-            prob_all = torch.cat([prob_x_labeled_1, prob_x_unlabeled_1], dim=0)
+            prob_x_head_1 = F.softmax(out_head_1)
+            prob_x_head_2 = F.softmax(out_head_2)
 
-            labeled_feat_len = len(feat.size(0))
-            all_feat_len = len(feat.size(0)) + len(feat_un.size(0))
+            feat_labeled = feat[masked_index]
+            feat_unlabeled = feat[~masked_index]
 
-            # Similarity labels
-            feat_all = torch.cat([feat_norm, feat_un_norm]).detach()
-            cosine_dist = torch.mm(feat_all, feat_all.t())
+            labeled_out = out_head_1[masked_index]
+            unlabeled_out = out_head_2[~masked_index]
 
-            # record uncert
-            conf, _ = prob_all.max(1)
-            conf = conf.detach()
-            seen_conf = conf[: labeled_feat_len]
-            unseen_conf = conf[labeled_feat_len:]
-            seen_uncerts.update(1 - seen_conf.mean().item(), all_feat_len)
-            unseen_uncerts.update(1 - unseen_conf.mean().item(), all_feat_len)
-            
-            pos_pairs = []
-            target = label[masked_label].to(args.device)
+            prob_labeled = F.softmax(out_head_1[masked_index], dim=1)
+            prob_unlabeled = F.softmax(out_head_1[~masked_index], dim=1)
+
+            labeled_len = sum(masked_index).item()
+            unlabeled_len = sum(~masked_index).item()
+
+            # feat_norm = feat_norm.detach()
+            # cosine_dist = torch.mm(feat_norm, feat_norm.t())
+
+            unlabeled_feat_norm = feat_norm[~masked_index].detach()
+            unlabeled_cosine_dist = torch.mm(unlabeled_feat_norm, unlabeled_feat_norm.t())
+
+            # uncertainty
+            seen_conf, _ = prob_x_head_1.max(1) 
+            unseen_conf, _ = prob_x_head_2.max(1) 
+            seen_uncerts.update(1 - seen_conf.mean().item(), labeled_len)
+            unseen_uncerts.update(1 - unseen_conf.mean().item(), unlabeled_len)
+
+            # pair
+            labeled_pos_pairs = []
+            unlabeled_pos_pairs = []
+            target = label[masked_index]
             target_np = target.cpu().numpy()
 
-            for i in range(labeled_feat_len):
-
+            for i in range(labeled_len):
                 target_i = target_np[i]
-                idx_match = np.where(target_np == target_i)[0]
-                if len(idx_match) == 1:
-                    pos_pairs.append(idx_match[0])
-                else:
-                    select_idx = np.random.choice(idx_match, 1)
-                    while select_idx == i:
-                        select_idx = np.random.choice(idx_match, 1)
-                    pos_pairs.append(int(select_idx))
+                idx = np.where(target_i == target_np)[0]
+                if len(idx) == 1: # only one has same label
+                    labeled_pos_pairs.append(idx[0]) 
+                else: # more than one
+                    select_idx = np.random.choice(idx, 1)
+                    while select_idx == i: # item itself should not be selected
+                        select_idx = np.random.choice(idx, 1) # choice a new one
+                    labeled_pos_pairs.append(select_idx)
 
-            unlabel_cosine_dist = cosine_dist[labeled_feat_len:, :]
-            vals, pos_idx = torch.topk(unlabel_cosine_dist, 2, dim=1)
-            pos_idx = pos_idx[:, 1].cpu().numpy().flatten().tolist()
-            pos_pairs.extend(pos_idx)
+            vals, pos_idx = torch.topk(unlabeled_cosine_dist, 2, dim=1) 
+            # second largest index as pos to the current one
+            pos_idx = pos_idx[:, 1].cpu().numpy().flatten().tolist() 
 
-            # clustering and sonsistency losses
-            pos_prob = prob_all[pos_pairs, :]
-            pos_sim = torch.bmm(prob_all.view(all_feat_len, 1, -1), 
-                                pos_prob.view(all_feat_len, -1, 1)).squeeze()
+            unlabeled_pos_pairs.extend(pos_idx)
+            
+            # clustering 
+            pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
+            pos_prob_unlabeled = prob_unlabeled[unlabeled_pos_pairs, :]
 
-            ones = torch.ones_like(pos_sim)
-            bce_loss = bce(pos_sim, ones)
-            ce_loss = ce(l_out_labeled_head, target)
-            entropy_loss = entropy(torch.mean(prob_all, 0))
+            pos_sim_labeled = torch.bmm(prob_labeled.view(labeled_len, 1, -1), 
+                                        pos_prob_labeled.view(labeled_len, -1, 1)).squeeze()
 
-            loss = 1 * bce_loss + 1 * ce_loss - 0.3 * entropy_loss
+            pos_sim_unlabeled = torch.bmm(prob_unlabeled.view(unlabeled_len, 1, -1), 
+                                        pos_prob_unlabeled.view(unlabeled_len, -1, 1)).squeeze()
 
-            bce_losses.update(bce_loss.item(), all_feat_len)
-            ce_losses.update(ce_loss.item(), all_feat_len)
-            entropy_losses.update(entropy_loss.item(), all_feat_len)
+            labeled_ones = torch.ones_like(pos_sim_labeled)
+            unlabeled_ones = torch.ones_like(pos_sim_unlabeled)
+
+            bce_loss_1 = bce(pos_sim_labeled, labeled_ones)
+            bce_loss_2 = bce(pos_sim_unlabeled, unlabeled_ones)
+
+            ce_loss = ce(labeled_out, target)
+            entropy_loss_1 = entropy(torch.mean(prob_labeled, 0))
+            entropy_loss_2 = entropy(torch.mean(prob_unlabeled, 0))
+
+            loss = 1 * (bce_loss_1 + bce_loss_2) + 1 * ce_loss - 0.3 * (entropy_loss_1 + entropy_loss_2)
+
+            bce_losses_labeled.update(bce_loss_1.item(), labeled_len)
+            bce_losses_unlabeled.update(bce_loss_2.item(), unlabeled_len)
+            ce_losses.update(ce_loss.item(), (labeled_len + unlabeled_len))
+            entropy_losses_labeled.update(entropy_loss_1.item(), labeled_len)
+            entropy_losses_unlabeled.update(entropy_loss_2.item(), unlabeled_len)
             optimizer.zero_grad()
             sum_loss += loss.item()
             loss.backward()
-            optimizer.step()           
-
+            optimizer.step()
 
             if batch_idx % (len(train_loader) // 4) == 0:
                 print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)
