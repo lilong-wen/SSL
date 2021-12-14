@@ -9,7 +9,7 @@ import pickle
 import random
 import torch
 import torch.utils.data as data
-from transform import TransformTwice, TransformKtimes, Transform1times, RandomTranslateWithReflect
+from .transform import TransformTwice, TransformKtimes, Transform1times, RandomTranslateWithReflect
 import torchvision.transforms as transforms
 
 
@@ -203,7 +203,7 @@ def CIFAR100LoaderMix(root, batch_size, split='train',num_workers=2, aug=None, s
 if __name__ == "__main__":
 
     dataset_root = "/home/wll/data/"
-    batch_size = 2
+    batch_size = 5
     num_labeled_classes = 5
     num_classes = 10
 
@@ -237,5 +237,8 @@ if __name__ == "__main__":
                                         target_list = range(num_labeled_classes))
 
     for img, target, _ in mix_train_loader:
+
         print(target)
+        mask_lb = target < num_labeled_classes
+        print(target[mask_lb])
         break
