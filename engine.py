@@ -113,7 +113,7 @@ class Engine:
             pos_pairs.extend(pos_idx)
             
             # Clustering and consistency losses
-            pos_prob = prob[pos_pairs, :]
+            pos_prob = prob[pos_pairs, :] # most similar pair prob
             pos_sim = torch.bmm(prob.view(batch_size, 1, -1), pos_prob.view(batch_size, -1, 1)).squeeze()
             ones = torch.ones_like(pos_sim)
             bce_loss = bce(pos_sim, ones)

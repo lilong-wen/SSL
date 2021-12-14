@@ -20,10 +20,10 @@ def get_args_parser():
     parser.add_argument('--dataset', default='cifar10', help='dataset setting')
     parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
     parser.add_argument('--name', type=str, default='debug')
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=800)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--wd', type=float, default=5e-2)
-    parser.add_argument('--train_batch_size', default=1000, type=int)
+    parser.add_argument('--train_batch_size', default=1500, type=int)
     parser.add_argument('--test_batch_size', default=1, type=int)
     return parser
 
