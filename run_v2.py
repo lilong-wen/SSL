@@ -27,7 +27,7 @@ def get_args_parser():
 
     parser.add_argument("--dataset", type=str, default="cifar10")
     parser.add_argument("--name", type=str, default="debug")
-    parser.add_argument("--train_batch_size", type=int, default=256)
+    parser.add_argument("--train_batch_size", type=int, default=1024)
     parser.add_argument("--test_batch_size", type=int, default=1000)
     parser.add_argument("--dataset_root", type=str, default="/home/wll/data")
 
@@ -61,15 +61,21 @@ def main(args):
                                         unlabeled_list=range(args.num_unlabeled_classes, args.num_classes))
 
 
-        labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.test_batch_size,
+        labeled_seen_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.test_batch_size,
                                               split='test', aug='once', shuffle=False,
                                               target_list=range(args.num_labeled_classes))
 
-        unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.test_batch_size,
+        unlabeled_unseen_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.test_batch_size,
                                               split='test', aug='once', shuffle=False,
                                               target_list=range(args.num_unlabeled_classes, args.num_classes))
 
-        train(model, train_loader, unlabeled_eval_loader, args)
+        test_loader = CIFAR10LoaderMix(root=args.dataset_root, batch_size=args.train_batch_size,
+                                        split='test', aug='once', shuffle=True,
+                                        labeled_list=range(args.num_labeled_classes),
+                                        unlabeled_list=range(args.num_unlabeled_classes, args.num_classes))
+
+        # train(model, train_loader, unlabeled_unseen_eval_loader, args)
+        train(model, train_loader, test_loader, args)
 
 
 
