@@ -39,7 +39,7 @@ def train(model, train_loader, test_loader, args):
 
     for epoch in range(args.epoch):
 
-        if epoch % 4 == 0:
+        if epoch % 1 == 0:
             mean_uncert, preds, final_acc = test(model, test_loader, args)
             print(f"test unseen acc: {final_acc}")
 
@@ -163,10 +163,11 @@ def train(model, train_loader, test_loader, args):
             loss.backward()
             optimizer.step()
 
-            if batch_idx % (len(train_loader) // 4) == 0:
-                print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)
-                ))
-
+            # if batch_idx % (len(train_loader) // 2) == 0:
+            #     print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)
+            #     ))
+            if (batch_idx + 1) == len(train_loader):
+                print('Loss: {:.6f}'.format(sum_loss / (batch_idx + 1)))
         # write_txt(args, f"labeled uncert: {seen_uncerts.avg} unseen uncert: {unseen_uncerts.avg}")
 
 
