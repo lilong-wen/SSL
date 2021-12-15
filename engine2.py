@@ -111,7 +111,7 @@ def train(model, train_loader, test_loader, args):
                 idx = np.where(target_i == target_np)[0]
                 if len(idx) == 1: # only one has same label
                     # labeled_pos_pairs.append(idx[0]) 
-                    labeled_pos_pairs.append(np.array(idx[0]))
+                    labeled_pos_pairs.append(np.array([idx[0]]))
                 else: # more than one
                     select_idx = np.random.choice(idx, 1)
                     while select_idx == i: # item itself should not be selected
