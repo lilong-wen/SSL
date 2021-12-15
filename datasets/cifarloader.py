@@ -161,8 +161,10 @@ def CIFAR10Loader(root, batch_size, split='train', num_workers=2,  aug=None, shu
 def CIFAR10LoaderMix(root, batch_size, split='train',num_workers=2, aug=None, shuffle=True, labeled_list=range(5), unlabeled_list=range(5, 10)):
     dataset_labeled = CIFAR10Data(root=root, split=split, aug=aug, target_list=labeled_list)
     dataset_unlabeled = CIFAR10Data(root=root, split=split, aug=aug, target_list=unlabeled_list)
-    dataset_labeled.targets = np.concatenate((dataset_labeled.targets, dataset_unlabeled.targets))
-    dataset_labeled.data = np.concatenate((dataset_labeled.data, dataset_unlabeled.data),0)
+    # balance unlabeled and labeled data
+    half_len_unlabeled = int(len(dataset_unlabeled) / 2)
+    dataset_labeled.targets = np.concatenate((dataset_labeled.targets, dataset_unlabeled.targets[: half_len_unlabeled]))
+    dataset_labeled.data = np.concatenate((dataset_labeled.data, dataset_unlabeled.data[: half_len_unlabeled]),0)
     loader = data.DataLoader(dataset_labeled, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     return loader
 
