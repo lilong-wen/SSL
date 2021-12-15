@@ -57,7 +57,8 @@ def train(model, train_loader, test_loader, args):
 
         exp_lr_scheduler.step()
         
-        for batch_idx, (x_mixed, label, idx_x) in enumerate(tqdm(train_loader)):
+        # for batch_idx, (x_mixed, label, idx_x) in enumerate(tqdm(train_loader)):
+        for batch_idx, (x_mixed, label, idx_x) in enumerate(train_loader):
 
             x_mixed,  label = x_mixed.to(args.device),  label.to(args.device)
 
@@ -109,7 +110,8 @@ def train(model, train_loader, test_loader, args):
                 target_i = target_np[i]
                 idx = np.where(target_i == target_np)[0]
                 if len(idx) == 1: # only one has same label
-                    labeled_pos_pairs.append(idx[0]) 
+                    # labeled_pos_pairs.append(idx[0]) 
+                    labeled_pos_pairs.append(np.array(idx[0]))
                 else: # more than one
                     select_idx = np.random.choice(idx, 1)
                     while select_idx == i: # item itself should not be selected
@@ -123,7 +125,14 @@ def train(model, train_loader, test_loader, args):
             unlabeled_pos_pairs.extend(pos_idx)
             
             # clustering 
-            pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
+            # pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
+            try:
+                pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
+            except:
+                print(labeled_pos_pairs)
+                print(prob_labeled.shape)
+                print(pos_prob_labeled.shape)
+
             pos_prob_unlabeled = prob_unlabeled[unlabeled_pos_pairs, :]
 
             pos_sim_labeled = torch.bmm(prob_labeled.view(labeled_len, 1, -1), 
@@ -170,7 +179,7 @@ def test(model, test_loader, args):
 
     with torch.no_grad():
 
-        for batch_idx, (x, label, _) in enumerate(tqdm(test_loader)):
+        for batch_idx, (x, label, _) in enumerate(test_loader):
             x, label = x.to(args.device), label.to(args.device)
             label_head_output, unlabel_head_output = model(x)
             prob = F.softmax(label_head_output, dim=1)
