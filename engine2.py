@@ -1,5 +1,7 @@
+import math
 from enum import EnumMeta
 import torch
+from torch.functional import _return_counts
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim import Adam, lr_scheduler
@@ -60,27 +62,46 @@ def train(model, train_loader, test_loader, args):
         # for batch_idx, (x_mixed, label, idx_x) in enumerate(tqdm(train_loader)):
         for batch_idx, (x_mixed, label, idx_x) in enumerate(train_loader):
 
-            x_mixed,  label = x_mixed.to(args.device),  label.to(args.device)
+
+            x_mixed,  label = x_mixed.to(args.device),  label.cpu().numpy()
+
+            # mask half labeled data (by setting half label to unlabled class so \
+            # can be mask next)
+            idx_sort = np.argsort(label)
+            sorted_label = label[idx_sort]
+            vals, idx_u, count = np.unique(sorted_label, return_counts=True, return_index=True)
+            half_count = np.array(list(map(lambda x: math.ceil(x/2), count)))
+            new_label = []
+            for ii, (count_i, half_count_i) in enumerate(zip(count, half_count)):
+                for i in range(half_count_i):
+                    new_label.append(vals[ii])
+                for i in range(count_i - half_count_i):
+                    new_label.append((args.num_labeled_classes + args.num_unlabeled_classes))
+
+            label = torch.tensor(new_label).to(args.device)
+
 
             # mask unlabeled label value
             masked_index = label < args.num_labeled_classes
 
+
             optimizer.zero_grad()
 
-            feat, feat_norm, out_head_1, \
-                out_head_2 = model(x_mixed, 'feat_logit')
+            # feat, feat_norm, out_head_1, \
+            #     out_head_2 = model(x_mixed, 'feat_logit')
 
-            prob_x_head_1 = F.softmax(out_head_1)
-            prob_x_head_2 = F.softmax(out_head_2)
+            feat, feat_norm, out= model(x_mixed, 'feat_logit')
+
+            prob_x = F.softmax(out)
 
             feat_labeled = feat[masked_index]
-            feat_unlabeled = feat[~masked_index]
+            feat_unlabeled = feat[~masked_index] # seen and unseen
 
-            labeled_out = out_head_1[masked_index]
-            unlabeled_out = out_head_2[~masked_index]
+            labeled_out = out[masked_index]
+            unlabeled_out = out[~masked_index]
 
-            prob_labeled = F.softmax(out_head_1[masked_index], dim=1)
-            prob_unlabeled = F.softmax(out_head_1[~masked_index], dim=1)
+            prob_labeled = F.softmax(out[masked_index], dim=1)
+            prob_unlabeled = F.softmax(out[~masked_index], dim=1)
 
             labeled_len = sum(masked_index).item()
             unlabeled_len = sum(~masked_index).item()
@@ -95,8 +116,8 @@ def train(model, train_loader, test_loader, args):
             unlabeled_cosine_dist = torch.mm(unlabeled_feat_norm, unlabeled_feat_norm.t())
 
             # uncertainty
-            seen_conf, _ = prob_x_head_1.max(1) 
-            unseen_conf, _ = prob_x_head_2.max(1) 
+            seen_conf, _ = prob_x.max(1) 
+            unseen_conf, _ = prob_x.max(1) 
             seen_uncerts.update(1 - seen_conf.mean().item(), labeled_len)
             unseen_uncerts.update(1 - unseen_conf.mean().item(), unlabeled_len)
 
@@ -125,13 +146,7 @@ def train(model, train_loader, test_loader, args):
             unlabeled_pos_pairs.extend(pos_idx)
             
             # clustering 
-            # pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
-            try:
-                pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
-            except:
-                print(labeled_pos_pairs)
-                print(prob_labeled.shape)
-                print(pos_prob_labeled.shape)
+            pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
 
             pos_prob_unlabeled = prob_unlabeled[unlabeled_pos_pairs, :]
 
@@ -182,7 +197,7 @@ def test(model, test_loader, args):
 
         for batch_idx, (x, label, _) in enumerate(test_loader):
             x, label = x.to(args.device), label.to(args.device)
-            label_head_output, unlabel_head_output = model(x)
+            label_head_output= model(x)
             prob = F.softmax(label_head_output, dim=1)
             conf, pred = prob.max(1)
             acc = cluster_acc(label.cpu().numpy().astype(int), pred.cpu().numpy().astype(int))

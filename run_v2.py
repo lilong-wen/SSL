@@ -45,13 +45,15 @@ def main(args):
     args.name = "_".join([args.dataset, args.name])
     args = prepare_save_dir(args, __file__)
 
+    args.num_classes = args.num_labeled_classes + args.num_unlabeled_classes
+
     args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = ResNet(BasicBlock, [2, 2, 2, 2], args.num_labeled_classes, args.num_unlabeled_classes)
+    model = ResNet(BasicBlock, [2, 2, 2, 2], args.num_classes)
+
     model = model.to(args.device)
 
     if args.dataset == 'cifar10':
 
-        args.num_classes = args.num_labeled_classes + args.num_unlabeled_classes
 
         train_loader = CIFAR10LoaderMix(root=args.dataset_root, batch_size=args.train_batch_size,
                                         split='train', aug='once', shuffle=True,

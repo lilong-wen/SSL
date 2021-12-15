@@ -25,7 +25,8 @@ class Normalize(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_labeled_classes=5, num_unlabeled_classes=5):
+    # def __init__(self, block, num_blocks, num_labeled_classes=5, num_unlabeled_classes=5):
+    def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 64
 
@@ -35,8 +36,8 @@ class ResNet(nn.Module):
         self.layer2   = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3   = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4   = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.head1 = nn.Linear(512*block.expansion, num_labeled_classes)
-        self.head2 = nn.Linear(512*block.expansion, num_unlabeled_classes)
+        self.head1 = nn.Linear(512*block.expansion, num_classes)
+        # self.head2 = nn.Linear(512*block.expansion, num_unlabeled_classes)
 
         self.l2norm = Normalize(2)
 
@@ -60,11 +61,13 @@ class ResNet(nn.Module):
         feat = out
         out1 = self.head1(out)
         feat_norm = self.l2norm(out)
-        out2 = self.head2(out)
+        # out2 = self.head2(out)
         if output == 'feat_logit':
-            return feat, feat_norm, out1, out2
+            # return feat, feat_norm, out1, out2
+            return feat, feat_norm, out1
         else:
-            return out1, out2
+            # return out1, out2
+            return out1
 
 class BasicBlock(nn.Module):
     expansion = 1
