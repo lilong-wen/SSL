@@ -21,7 +21,7 @@ def get_args_parser():
     parser.add_argument("--weight_decay", default=1e-4, help="weight decay")
     parser.add_argument("--step_size", default=170, help="step size for lr scheduler")
     parser.add_argument("--gamma", default=0.1, help="gamma for lr scheduler")
-    parser.add_argument("--epoch", default=100, help="training epoch")
+    parser.add_argument("--epoch", default=1000, help="training epoch")
     parser.add_argument("--num_labeled_classes", default=5, help="labeled classes")
     parser.add_argument("--num_unlabeled_classes", default=5, help="unlabeled classes")
 
