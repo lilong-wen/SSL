@@ -101,19 +101,23 @@ def train(model, train_loader, test_loader, args):
             unlabeled_out = out[~masked_index]
 
             prob_labeled = F.softmax(out[masked_index], dim=1)
-            prob_unlabeled = F.softmax(out[~masked_index], dim=1)
+            # prob_unlabeled = F.softmax(out[~masked_index], dim=1)
+            prob_all = F.softmax(out, dim=1)
 
             labeled_len = sum(masked_index).item()
             unlabeled_len = sum(~masked_index).item()
+            mix_len = labeled_len + unlabeled_len
 
             if labeled_len == 0 or unlabeled_len == 0:
                 continue
 
-            # feat_norm = feat_norm.detach()
-            # cosine_dist = torch.mm(feat_norm, feat_norm.t())
+            feat_norm = feat_norm.detach()
+            cosine_dist = torch.mm(feat_norm, feat_norm.t())
+            # unlabeled_cosine_dist = cosine_dist[~masked_index]
+            unlabeled_cosine_dist = cosine_dist
 
-            unlabeled_feat_norm = feat_norm[~masked_index].detach()
-            unlabeled_cosine_dist = torch.mm(unlabeled_feat_norm, unlabeled_feat_norm.t())
+            # unlabeled_feat_norm = feat_norm[~masked_index].detach()
+            # unlabeled_cosine_dist = torch.mm(unlabeled_feat_norm, unlabeled_feat_norm.t())
 
             # uncertainty
             seen_conf, _ = prob_x.max(1) 
@@ -148,13 +152,20 @@ def train(model, train_loader, test_loader, args):
             # clustering 
             pos_prob_labeled = prob_labeled[labeled_pos_pairs, :]
 
-            pos_prob_unlabeled = prob_unlabeled[unlabeled_pos_pairs, :]
+            # pos_prob_unlabeled = prob_unlabeled[unlabeled_pos_pairs, :]
+            pos_prob_all = prob_all[unlabeled_pos_pairs, :]
 
             pos_sim_labeled = torch.bmm(prob_labeled.view(labeled_len, 1, -1), 
                                         pos_prob_labeled.view(labeled_len, -1, 1)).squeeze()
 
-            pos_sim_unlabeled = torch.bmm(prob_unlabeled.view(unlabeled_len, 1, -1), 
-                                        pos_prob_unlabeled.view(unlabeled_len, -1, 1)).squeeze()
+            # pos_sim_unlabeled = torch.bmm(prob_unlabeled.view(unlabeled_len, 1, -1), 
+            #                             pos_prob_unlabeled.view(unlabeled_len, -1, 1)).squeeze()
+
+            # pos_sim_unlabeled = torch.bmm(prob_all.view(unlabeled_len, 1, -1), 
+            #                             pos_prob_all.view(unlabeled_len, -1, 1)).squeeze()
+
+            pos_sim_unlabeled = torch.bmm(prob_all.view(mix_len, 1, -1), 
+                                        pos_prob_all.view(mix_len, -1, 1)).squeeze()
 
             labeled_ones = torch.ones_like(pos_sim_labeled)
             unlabeled_ones = torch.ones_like(pos_sim_unlabeled)
@@ -164,9 +175,10 @@ def train(model, train_loader, test_loader, args):
 
             ce_loss = ce(labeled_out, target)
             entropy_loss_1 = entropy(torch.mean(prob_labeled, 0))
-            entropy_loss_2 = entropy(torch.mean(prob_unlabeled, 0))
+            # entropy_loss_2 = entropy(torch.mean(prob_unlabeled, 0))
+            entropy_loss_2 = entropy(torch.mean(prob_all, 0))
 
-            loss = 1 * (bce_loss_1 + bce_loss_2) + 1 * ce_loss - 0.3 * (entropy_loss_1 + entropy_loss_2)
+            loss = 1 * (bce_loss_1 + bce_loss_2 * (2/3)) + 1 * ce_loss - 0.3 * (entropy_loss_1 + entropy_loss_2 * (2/3))
 
             bce_losses_labeled.update(bce_loss_1.item(), labeled_len)
             bce_losses_unlabeled.update(bce_loss_2.item(), unlabeled_len)
@@ -199,6 +211,7 @@ def test(model, test_loader, args):
             x, label = x.to(args.device), label.to(args.device)
             label_head_output= model(x)
             prob = F.softmax(label_head_output, dim=1)
+            prob = prob[:, args.num_unlabeled_classes:]
             conf, pred = prob.max(1)
             acc = cluster_acc(label.cpu().numpy().astype(int), pred.cpu().numpy().astype(int))
             preds = np.append(preds, pred.cpu().numpy())

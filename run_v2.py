@@ -74,8 +74,8 @@ def main(args):
                                         labeled_list=range(args.num_labeled_classes),
                                         unlabeled_list=range(args.num_unlabeled_classes, args.num_classes))
 
-        # train(model, train_loader, unlabeled_unseen_eval_loader, args)
-        train(model, train_loader, test_loader, args)
+        train(model, train_loader, unlabeled_unseen_eval_loader, args)
+        # train(model, train_loader, test_loader, args)
 
 
 
